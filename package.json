@@ -1,0 +1,75 @@
+{
+  "name": "github-ci-status",
+  "displayName": "GitHub CI Status",
+  "description": "Show current branch pull request CI status checks from GitHub.",
+  "version": "0.1.0",
+  "publisher": "brijbyte",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brijbyte/github-ci-status.git"
+  },
+  "keywords": [
+    "github",
+    "ci",
+    "status",
+    "pull request",
+    "checks"
+  ],
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "resources/icon.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "githubCiStatus.showChecks",
+        "title": "GitHub CI Status",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "githubCiStatus.refresh",
+        "title": "Refresh GitHub CI Status",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "githubCiStatus.openPullRequest",
+        "title": "Open GitHub Pull Request",
+        "icon": "$(github)"
+      }
+    ],
+    "configuration": {
+      "title": "GitHub CI Status",
+      "properties": {
+        "githubCiStatus.autoRefreshIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "description": "Refresh interval for GitHub CI status checks. Set to 0 to disable automatic refresh."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "package": "vsce package --no-dependencies",
+    "publish": "vsce publish --no-dependencies",
+    "test": "vitest run",
+    "typescript": "tsc -p tsconfig.json --noEmit",
+    "vscode:prepublish": "pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.0",
+    "@types/vscode": "1.105.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "5.9.3",
+    "vitest": "4.1.6"
+  }
+}
