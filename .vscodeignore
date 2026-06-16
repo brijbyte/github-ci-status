@@ -8,6 +8,7 @@ src/**
 .prettier*
 eslint.config.mjs
 pnpm-lock.yaml
+pnpm-workspace.yaml
 tsconfig*.json
 vitest.config.mts
 *.tsbuildinfo

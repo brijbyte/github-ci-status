@@ -17,50 +17,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 2
 
       - name: Read package version
         id: package
-        env:
-          BEFORE_SHA: ${{ github.event.before }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           node <<'NODE'
           const fs = require('node:fs');
-          const childProcess = require('node:child_process');
 
           const currentPackage = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          let previousVersion;
-
-          if (process.env.EVENT_NAME === 'push' && process.env.BEFORE_SHA) {
-            try {
-              const previousPackageJson = childProcess.execFileSync(
-                'git',
-                ['show', `${process.env.BEFORE_SHA}:package.json`],
-                { encoding: 'utf8' },
-              );
-              previousVersion = JSON.parse(previousPackageJson).version;
-            } catch {
-              previousVersion = undefined;
-            }
-          }
-
-          const versionChanged =
-            process.env.EVENT_NAME === 'workflow_dispatch' ||
-            previousVersion !== currentPackage.version;
           const output = fs.createWriteStream(process.env.GITHUB_OUTPUT, { flags: 'a' });
 
           output.write(`name=${currentPackage.name}\n`);
           output.write(`publisher=${currentPackage.publisher}\n`);
           output.write(`version=${currentPackage.version}\n`);
-          output.write(`previous_version=${previousVersion ?? ''}\n`);
-          output.write(`version_changed=${versionChanged ? 'true' : 'false'}\n`);
           NODE
 
       - name: Check Marketplace version
         id: marketplace
-        if: steps.package.outputs.version_changed == 'true'
         env:
           EXTENSION_NAME: ${{ steps.package.outputs.name }}
           EXTENSION_PUBLISHER: ${{ steps.package.outputs.publisher }}
@@ -117,24 +90,24 @@ jobs:
           NODE
 
       - name: Setup pnpm
-        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        if: steps.marketplace.outputs.version_exists == 'false'
         uses: pnpm/action-setup@v6
         with:
           version: 11.1.2
 
       - name: Setup Node.js
-        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        if: steps.marketplace.outputs.version_exists == 'false'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
-        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        if: steps.marketplace.outputs.version_exists == 'false'
         run: pnpm install --frozen-lockfile
 
       - name: Validate
-        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        if: steps.marketplace.outputs.version_exists == 'false'
         run: |
           pnpm run prettier
           pnpm run lint
@@ -144,14 +117,13 @@ jobs:
           pnpm run package
 
       - name: Publish
-        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        if: steps.marketplace.outputs.version_exists == 'false'
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: pnpm run publish
 
       - name: Skip publish
-        if: steps.package.outputs.version_changed != 'true' || steps.marketplace.outputs.version_exists == 'true'
+        if: steps.marketplace.outputs.version_exists == 'true'
         run: |
           echo "Skipping publish."
-          echo "version_changed=${{ steps.package.outputs.version_changed }}"
-          echo "version_exists=${{ steps.marketplace.outputs.version_exists }}"
+          echo "version=${{ steps.package.outputs.version }} already exists on the Marketplace."
