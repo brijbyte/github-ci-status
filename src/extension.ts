@@ -31,6 +31,7 @@ class CiStatusProvider implements vscode.Disposable {
   private pullRequest: PullRequestInfo | undefined;
   private state: 'idle' | 'loading' | 'loaded' | 'error' = 'idle';
   private message = 'Open a workspace folder to load CI checks.';
+  private loadingWaiters: (() => void)[] = [];
 
   constructor(
     private readonly checkIconUris: CheckIconUris,
@@ -125,7 +126,15 @@ class CiStatusProvider implements vscode.Disposable {
     }
 
     if (this.state === 'loading') {
-      await vscode.window.showInformationMessage('CI checks are still loading.');
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Loading CI checks...',
+        },
+        () => this.whenLoadingFinished(),
+      );
+
+      await this.showChecks();
       return;
     }
 
@@ -222,7 +231,23 @@ class CiStatusProvider implements vscode.Disposable {
     this.outputChannel.appendLine(`[${new Date().toISOString()}] ${message}`);
   }
 
+  private whenLoadingFinished(): Promise<void> {
+    if (this.state !== 'loading') {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      this.loadingWaiters.push(resolve);
+    });
+  }
+
   private updateStatusBar(): void {
+    if (this.state !== 'loading' && this.loadingWaiters.length) {
+      const waiters = this.loadingWaiters;
+      this.loadingWaiters = [];
+      waiters.forEach((resolve) => resolve());
+    }
+
     this.statusBarItem.backgroundColor = undefined;
     this.statusBarItem.color = undefined;
 

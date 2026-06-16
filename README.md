@@ -21,6 +21,10 @@ that reports commit status checks back to GitHub.
 - Caches pull request discovery globally by repository, branch, and commit SHA
   for five minutes while still refreshing CI check results.
 
+## Screenshot
+
+![GitHub CI Status check picker](https://raw.githubusercontent.com/brijbyte/github-ci-status/main/resources/screenshot-checks.jpg)
+
 ## How It Works
 
 Open a GitHub repository in VS Code. When the current branch has an open pull
