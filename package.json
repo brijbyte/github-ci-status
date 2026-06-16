@@ -2,7 +2,7 @@
   "name": "github-ci-status",
   "displayName": "GitHub CI Status",
   "description": "Show current branch pull request CI status checks from GitHub.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "brijbyte",
   "license": "MIT",
   "repository": {

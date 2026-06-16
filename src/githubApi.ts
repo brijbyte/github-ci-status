@@ -10,10 +10,24 @@ interface GitHubPullRequest {
   html_url?: unknown;
   state?: unknown;
   head?: unknown;
+  base?: unknown;
 }
 
 interface GitHubPullRequestHead {
   ref?: unknown;
+}
+
+interface GitHubPullRequestBase {
+  repo?: unknown;
+}
+
+interface GitHubPullRequestBaseRepo {
+  owner?: unknown;
+  name?: unknown;
+}
+
+interface GitHubRepoOwner {
+  login?: unknown;
 }
 
 interface ResolvedGitHubPullRequest {
@@ -21,6 +35,7 @@ interface ResolvedGitHubPullRequest {
   html_url: string;
   state?: unknown;
   head?: unknown;
+  base?: unknown;
 }
 
 interface PullRequestMatch {
@@ -92,12 +107,11 @@ export async function loadPullRequestIdentityFromGitHubApi(
         pullRequest,
       })),
     );
-  const match =
-    matches.find(
-      (candidate): candidate is PullRequestMatch =>
-        isResolvedPullRequestMatch(candidate) &&
-        readPullRequestHeadRef(candidate.pullRequest.head) === branch,
-    ) ?? matches.find(isResolvedPullRequestMatch);
+  const match = matches.find(
+    (candidate): candidate is PullRequestMatch =>
+      isResolvedPullRequestMatch(candidate) &&
+      readPullRequestHeadRef(candidate.pullRequest.head) === branch,
+  );
 
   if (!match) {
     return undefined;
@@ -109,7 +123,34 @@ export async function loadPullRequestIdentityFromGitHubApi(
     number: pullRequest.number,
     url: pullRequest.html_url,
     headRefName: readPullRequestHeadRef(pullRequest.head) ?? branch,
-    repository,
+    // CI checks are reported on the PR's base repository, which differs from the
+    // remote we found the commit on when the PR comes from a fork.
+    repository: readPullRequestBaseRepository(pullRequest.base) ?? repository,
+  };
+}
+
+function readPullRequestBaseRepository(base: unknown): GitHubRepository | undefined {
+  if (!isObject(base)) {
+    return undefined;
+  }
+
+  const baseRepo = (base as GitHubPullRequestBase).repo;
+
+  if (!isObject(baseRepo)) {
+    return undefined;
+  }
+
+  const { owner, name } = baseRepo as GitHubPullRequestBaseRepo;
+  const ownerLogin = isObject(owner) ? readString((owner as GitHubRepoOwner).login) : undefined;
+  const repoName = readString(name);
+
+  if (!ownerLogin || !repoName) {
+    return undefined;
+  }
+
+  return {
+    owner: ownerLogin,
+    repo: repoName,
   };
 }
 

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { CiCheck } from './checkStatus';
 import { summarizeChecks } from './checkStatus';
 import { isGitHubRepository } from './git';
+import type { GitExtension, GitRepository } from './gitExtension';
 import { loadPullRequest, type PullRequestInfo } from './pullRequest';
 
 interface CheckQuickPickItem extends vscode.QuickPickItem {
@@ -28,6 +29,9 @@ class CiStatusProvider implements vscode.Disposable {
   private emptyCheckRetryCount = 0;
   private emptyCheckRetryTimer: NodeJS.Timeout | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
+  private branchChangeTimer: NodeJS.Timeout | undefined;
+  private gitWatchDisposables: vscode.Disposable[] = [];
+  private repoBranchState = new Map<string, string>();
   private pullRequest: PullRequestInfo | undefined;
   private state: 'idle' | 'loading' | 'loaded' | 'error' = 'idle';
   private message = 'Open a workspace folder to load CI checks.';
@@ -36,13 +40,13 @@ class CiStatusProvider implements vscode.Disposable {
   constructor(
     private readonly checkIconUris: CheckIconUris,
     private readonly outputChannel: vscode.OutputChannel,
-    private readonly identityStorage: vscode.Memento,
   ) {
     this.statusBarItem.command = 'githubCiStatus.showChecks';
     this.statusBarItem.name = 'GitHub CI Status';
     this.statusBarItem.show();
     this.updateStatusBar();
     this.configureAutoRefresh();
+    void this.configureBranchWatch();
   }
 
   async refresh(options: { preserveEmptyCheckRetries?: boolean } = {}): Promise<void> {
@@ -74,7 +78,9 @@ class CiStatusProvider implements vscode.Disposable {
       }
 
       this.log(`Using workspace folder: ${workspaceFolder.uri.fsPath}`);
-      this.pullRequest = await loadPullRequest(workspaceFolder.uri.fsPath, this.identityStorage);
+      this.pullRequest = await loadPullRequest(workspaceFolder.uri.fsPath, (message) =>
+        this.log(message),
+      );
 
       if (this.pullRequest?.checks.length === 0 && this.scheduleEmptyCheckRetry()) {
         this.state = 'loading';
@@ -196,11 +202,84 @@ class CiStatusProvider implements vscode.Disposable {
     }
   }
 
+  async configureBranchWatch(): Promise<void> {
+    this.disposeGitWatch();
+
+    const gitExtension = vscode.extensions.getExtension<GitExtension>('vscode.git');
+
+    if (!gitExtension) {
+      this.log('Built-in Git extension not found. Branch change detection disabled.');
+      return;
+    }
+
+    const gitApi = (await gitExtension.activate()).getAPI(1);
+    this.log(`Git extension active. Watching ${gitApi.repositories.length} repository(ies).`);
+
+    for (const repository of gitApi.repositories) {
+      this.watchRepository(repository);
+    }
+
+    this.gitWatchDisposables.push(
+      gitApi.onDidOpenRepository((repository) => {
+        this.log(`Git repository opened: ${repository.rootUri.fsPath}`);
+        this.watchRepository(repository);
+      }),
+    );
+  }
+
+  private watchRepository(repository: GitRepository): void {
+    const key = repository.rootUri.toString();
+    this.repoBranchState.set(key, branchStateKey(repository));
+    this.log(
+      `Watching repository ${repository.rootUri.fsPath} (branch "${repository.state.HEAD?.name ?? 'unknown'}").`,
+    );
+
+    this.gitWatchDisposables.push(
+      repository.state.onDidChange(() => {
+        const nextState = branchStateKey(repository);
+        const previousState = this.repoBranchState.get(key);
+
+        if (previousState === nextState) {
+          return;
+        }
+
+        this.repoBranchState.set(key, nextState);
+        this.log(`Branch state changed: "${previousState}" -> "${nextState}".`);
+        this.onBranchChanged();
+      }),
+    );
+  }
+
   dispose(): void {
     this.clearEmptyCheckRetry();
     this.refreshTimer?.close();
+    if (this.branchChangeTimer) {
+      clearTimeout(this.branchChangeTimer);
+    }
+    this.disposeGitWatch();
     this.statusBarItem.dispose();
     this.outputChannel.dispose();
+  }
+
+  private disposeGitWatch(): void {
+    for (const disposable of this.gitWatchDisposables) {
+      disposable.dispose();
+    }
+
+    this.gitWatchDisposables = [];
+    this.repoBranchState.clear();
+  }
+
+  private onBranchChanged(): void {
+    if (this.branchChangeTimer) {
+      clearTimeout(this.branchChangeTimer);
+    }
+
+    this.branchChangeTimer = setTimeout(() => {
+      this.branchChangeTimer = undefined;
+      this.log('Workspace branch changed. Refreshing CI checks.');
+      void this.refresh();
+    }, 500);
   }
 
   private clearEmptyCheckRetry(): void {
@@ -287,7 +366,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider = new CiStatusProvider(
     createCheckIconUris(context.extensionUri),
     vscode.window.createOutputChannel('GitHub CI Status'),
-    context.globalState,
   );
 
   context.subscriptions.push(
@@ -309,6 +387,10 @@ export function activate(context: vscode.ExtensionContext): void {
         provider.configureAutoRefresh();
       }
     }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void provider.configureBranchWatch();
+      void provider.refresh();
+    }),
   );
 
   void provider.refresh();
@@ -326,6 +408,10 @@ async function findWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefined
   return (
     repositoryMatches.find((repositoryMatch) => repositoryMatch.isGitHub)?.folder ?? folders[0]
   );
+}
+
+function branchStateKey(repository: GitRepository): string {
+  return `${repository.state.HEAD?.name ?? ''}@${repository.state.HEAD?.commit ?? ''}`;
 }
 
 function getErrorMessage(error: unknown): string {

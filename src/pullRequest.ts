@@ -8,16 +8,8 @@ import {
   type PullRequestIdentity,
 } from './githubApi';
 
-const PR_IDENTITY_CACHE_TTL_MS = 5 * 60 * 1000;
-const PR_IDENTITY_CACHE_STORAGE_KEY = 'pullRequestIdentityCache.v1';
-
 export interface PullRequestInfo extends PullRequestIdentity {
   checks: CiCheck[];
-}
-
-export interface PullRequestIdentityStorage {
-  get(key: string): unknown;
-  update(key: string, value: unknown): PromiseLike<void>;
 }
 
 interface PullRequestJson {
@@ -27,46 +19,40 @@ interface PullRequestJson {
   statusCheckRollup?: unknown;
 }
 
-interface PullRequestIdentityCacheEntry {
-  expiresAt: number;
-  identity: PullRequestIdentity | null;
-}
-
-const pullRequestIdentityCache = new Map<string, PullRequestIdentityCacheEntry>();
-
 export async function loadPullRequest(
   cwd: string,
-  identityStorage?: PullRequestIdentityStorage,
+  log: (message: string) => void = () => undefined,
 ): Promise<PullRequestInfo | undefined> {
   const gitState = await loadGitBranchState(cwd);
 
   if (!gitState) {
+    log('No Git branch detected (not a repo or detached HEAD).');
     return undefined;
   }
 
+  log(`Git state: branch="${gitState.branch}" headSha=${gitState.headSha.slice(0, 8)}`);
+
   const repositories = await loadGitHubRepositoryCandidates(cwd);
-  const cacheKey = createCacheKey(cwd, gitState.branch, gitState.headSha, repositories);
-  const cachedIdentityResult = await readCachedPullRequestIdentity(cacheKey, identityStorage);
-
-  if (cachedIdentityResult.hit) {
-    if (!cachedIdentityResult.identity) {
-      return undefined;
-    }
-
-    return {
-      ...cachedIdentityResult.identity,
-      checks: await loadChecks(cwd, cachedIdentityResult.identity, gitState.headSha),
-    };
-  }
+  log(
+    `GitHub repository candidates: ${
+      repositories.map((repository) => `${repository.owner}/${repository.repo}`).join(', ') ||
+      '(none)'
+    }`,
+  );
 
   const pullRequest = await loadPullRequestWithPreferredProvider(
     cwd,
     repositories,
     gitState.branch,
     gitState.headSha,
+    log,
   );
 
-  await writeCachedPullRequestIdentity(cacheKey, pullRequest, identityStorage);
+  log(
+    pullRequest
+      ? `Fetched PR #${pullRequest.number} (head "${pullRequest.headRefName}") with ${pullRequest.checks.length} check(s).`
+      : 'No pull request found for this branch.',
+  );
 
   return pullRequest;
 }
@@ -76,34 +62,46 @@ async function loadPullRequestWithPreferredProvider(
   repositories: readonly GitHubRepository[],
   branch: string,
   headSha: string,
+  log: (message: string) => void,
 ): Promise<PullRequestInfo | undefined> {
   try {
+    log(`Trying GitHub CLI: gh pr view "${branch}".`);
     const pullRequest = await loadPullRequestWithGh(cwd, repositories, branch);
 
     if (!pullRequest) {
+      log('GitHub CLI returned no pull request for this branch.');
       return undefined;
     }
 
     if (pullRequest.checks.length > 0) {
+      log(`GitHub CLI returned PR #${pullRequest.number} with rollup checks.`);
       return pullRequest;
     }
 
+    log(`GitHub CLI returned PR #${pullRequest.number} with empty rollup. Reloading checks.`);
     return {
       ...pullRequest,
       checks: await loadChecks(cwd, pullRequest, headSha),
     };
-  } catch {
+  } catch (error) {
+    log(`GitHub CLI path failed (${getMessage(error)}). Falling back to GitHub API.`);
     const identity = await loadPullRequestIdentityFromGitHubApi(repositories, branch, headSha);
 
     if (!identity) {
+      log('GitHub API found no open PR whose head matches this branch.');
       return undefined;
     }
 
+    log(`GitHub API matched PR #${identity.number} (head "${identity.headRefName}").`);
     return {
       ...identity,
       checks: await loadChecksFromGitHubApi(identity.repository, headSha),
     };
   }
+}
+
+function getMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function loadChecks(
@@ -159,7 +157,7 @@ function parsePullRequest(
     return undefined;
   }
 
-  const repository = repositories.at(0) ?? parseGitHubRepositoryFromPullRequestUrl(parsed.url);
+  const repository = parseGitHubRepositoryFromPullRequestUrl(parsed.url) ?? repositories.at(0);
 
   if (!repository) {
     throw new Error('Unable to infer the GitHub repository for this pull request.');
@@ -184,72 +182,6 @@ function parseStatusCheckRollup(statusCheckRollup: unknown): CiCheck[] {
     : [];
 }
 
-async function readCachedPullRequestIdentity(
-  cacheKey: string,
-  identityStorage: PullRequestIdentityStorage | undefined,
-): Promise<{
-  hit: boolean;
-  identity: PullRequestIdentity | undefined;
-}> {
-  const cacheEntry =
-    pullRequestIdentityCache.get(cacheKey) ??
-    readStoredPullRequestIdentityCacheEntry(cacheKey, identityStorage);
-
-  if (!cacheEntry) {
-    return {
-      hit: false,
-      identity: undefined,
-    };
-  }
-
-  if (cacheEntry.expiresAt < Date.now()) {
-    pullRequestIdentityCache.delete(cacheKey);
-    await deleteStoredPullRequestIdentityCacheEntry(cacheKey, identityStorage);
-    return {
-      hit: false,
-      identity: undefined,
-    };
-  }
-
-  return {
-    hit: true,
-    identity: cacheEntry.identity ?? undefined,
-  };
-}
-
-async function writeCachedPullRequestIdentity(
-  cacheKey: string,
-  pullRequest: PullRequestInfo | undefined,
-  identityStorage: PullRequestIdentityStorage | undefined,
-): Promise<void> {
-  const cacheEntry = {
-    expiresAt: Date.now() + PR_IDENTITY_CACHE_TTL_MS,
-    identity: pullRequest
-      ? {
-          number: pullRequest.number,
-          url: pullRequest.url,
-          headRefName: pullRequest.headRefName,
-          repository: pullRequest.repository,
-        }
-      : null,
-  };
-
-  pullRequestIdentityCache.set(cacheKey, cacheEntry);
-  await writeStoredPullRequestIdentityCacheEntry(cacheKey, cacheEntry, identityStorage);
-}
-
-function createCacheKey(
-  cwd: string,
-  branch: string,
-  headSha: string,
-  repositories: readonly GitHubRepository[],
-): string {
-  const repositoryKey = repositories
-    .map((repository) => `${repository.owner}/${repository.repo}`)
-    .join(',');
-  return `${cwd}:${branch}:${headSha}:${repositoryKey}`;
-}
-
 function parseGitHubRepositoryFromPullRequestUrl(url: string): GitHubRepository | undefined {
   const parsedUrl = new URL(url);
 
@@ -270,100 +202,6 @@ function parseGitHubRepositoryFromPullRequestUrl(url: string): GitHubRepository 
     owner,
     repo,
   };
-}
-
-function readStoredPullRequestIdentityCacheEntry(
-  cacheKey: string,
-  identityStorage: PullRequestIdentityStorage | undefined,
-): PullRequestIdentityCacheEntry | undefined {
-  const storedCache = readStoredPullRequestIdentityCache(identityStorage);
-  const cacheEntry = storedCache[cacheKey];
-
-  if (!isPullRequestIdentityCacheEntry(cacheEntry)) {
-    return undefined;
-  }
-
-  pullRequestIdentityCache.set(cacheKey, cacheEntry);
-  return cacheEntry;
-}
-
-async function writeStoredPullRequestIdentityCacheEntry(
-  cacheKey: string,
-  cacheEntry: PullRequestIdentityCacheEntry,
-  identityStorage: PullRequestIdentityStorage | undefined,
-): Promise<void> {
-  if (!identityStorage) {
-    return;
-  }
-
-  await identityStorage.update(PR_IDENTITY_CACHE_STORAGE_KEY, {
-    ...pruneExpiredPullRequestIdentityCache(readStoredPullRequestIdentityCache(identityStorage)),
-    [cacheKey]: cacheEntry,
-  });
-}
-
-async function deleteStoredPullRequestIdentityCacheEntry(
-  cacheKey: string,
-  identityStorage: PullRequestIdentityStorage | undefined,
-): Promise<void> {
-  if (!identityStorage) {
-    return;
-  }
-
-  const storedCache = Object.fromEntries(
-    Object.entries(readStoredPullRequestIdentityCache(identityStorage)).filter(
-      ([key]) => key !== cacheKey,
-    ),
-  );
-  await identityStorage.update(
-    PR_IDENTITY_CACHE_STORAGE_KEY,
-    pruneExpiredPullRequestIdentityCache(storedCache),
-  );
-}
-
-function readStoredPullRequestIdentityCache(
-  identityStorage: PullRequestIdentityStorage | undefined,
-): Record<string, unknown> {
-  const storedCache = identityStorage?.get(PR_IDENTITY_CACHE_STORAGE_KEY);
-
-  return isObject(storedCache) ? storedCache : {};
-}
-
-function pruneExpiredPullRequestIdentityCache(
-  storedCache: Record<string, unknown>,
-): Record<string, PullRequestIdentityCacheEntry> {
-  const now = Date.now();
-  const entries = Object.entries(storedCache).filter(
-    (entry): entry is [string, PullRequestIdentityCacheEntry] =>
-      isPullRequestIdentityCacheEntry(entry[1]) && entry[1].expiresAt >= now,
-  );
-
-  return Object.fromEntries(entries);
-}
-
-function isPullRequestIdentityCacheEntry(value: unknown): value is PullRequestIdentityCacheEntry {
-  if (!isObject(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.expiresAt === 'number' &&
-    (value.identity === null || isPullRequestIdentity(value.identity))
-  );
-}
-
-function isPullRequestIdentity(value: unknown): value is PullRequestIdentity {
-  if (!isObject(value) || !isObject(value.repository)) {
-    return false;
-  }
-
-  return (
-    typeof value.number === 'number' &&
-    typeof value.url === 'string' &&
-    typeof value.headRefName === 'string' &&
-    typeof value.repository.owner === 'string' &&
-    typeof value.repository.repo === 'string'
-  );
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
