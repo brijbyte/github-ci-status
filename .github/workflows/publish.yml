@@ -93,7 +93,7 @@ jobs:
         if: steps.marketplace.outputs.version_exists == 'false'
         uses: pnpm/action-setup@v6
         with:
-          version: 11.1.2
+          version: 10.34.3
 
       - name: Setup Node.js
         if: steps.marketplace.outputs.version_exists == 'false'
