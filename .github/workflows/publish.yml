@@ -136,6 +136,8 @@ jobs:
       - name: Validate
         if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
         run: |
+          pnpm run prettier
+          pnpm run lint
           pnpm run build
           pnpm run typescript
           pnpm run test

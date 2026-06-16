@@ -5,6 +5,8 @@ node_modules/**
 src/**
 *.vsix
 .gitignore
+.prettier*
+eslint.config.mjs
 pnpm-lock.yaml
 tsconfig*.json
 vitest.config.mts

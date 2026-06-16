@@ -289,8 +289,6 @@ export function activate(context: vscode.ExtensionContext): void {
   void provider.refresh();
 }
 
-export function deactivate(): void {}
-
 async function findWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefined> {
   const folders = vscode.workspace.workspaceFolders ?? [];
   const repositoryMatches = await Promise.all(

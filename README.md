@@ -67,6 +67,8 @@ disable automatic refresh.
 ```bash
 pnpm install
 pnpm build
+pnpm lint
+pnpm prettier
 pnpm test
 pnpm typescript
 ```

@@ -59,17 +59,25 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "format": "prettier --write .",
+    "lint": "eslint .",
     "package": "vsce package --no-dependencies",
     "publish": "vsce publish --no-dependencies",
+    "prettier": "prettier --check .",
     "test": "vitest run",
     "typescript": "tsc -p tsconfig.json --noEmit",
     "vscode:prepublish": "pnpm build"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@types/node": "22.19.0",
     "@types/vscode": "1.105.0",
     "@vscode/vsce": "^3.9.2",
+    "eslint": "10.5.0",
+    "globals": "17.6.0",
+    "prettier": "3.8.4",
     "typescript": "5.9.3",
+    "typescript-eslint": "8.61.1",
     "vitest": "4.1.6"
   }
 }

@@ -16,7 +16,7 @@ export interface PullRequestInfo extends PullRequestIdentity {
 }
 
 export interface PullRequestIdentityStorage {
-  get<Value>(key: string): Value | undefined;
+  get(key: string): unknown;
   update(key: string, value: unknown): PromiseLike<void>;
 }
 
@@ -118,9 +118,9 @@ async function loadChecks(
       return checks;
     }
 
-    return loadChecksFromGitHubApi(pullRequestIdentity.repository, headSha);
+    return await loadChecksFromGitHubApi(pullRequestIdentity.repository, headSha);
   } catch {
-    return loadChecksFromGitHubApi(pullRequestIdentity.repository, headSha);
+    return await loadChecksFromGitHubApi(pullRequestIdentity.repository, headSha);
   }
 }
 
@@ -159,7 +159,7 @@ function parsePullRequest(
     return undefined;
   }
 
-  const repository = repositories[0] ?? parseGitHubRepositoryFromPullRequestUrl(parsed.url);
+  const repository = repositories.at(0) ?? parseGitHubRepositoryFromPullRequestUrl(parsed.url);
 
   if (!repository) {
     throw new Error('Unable to infer the GitHub repository for this pull request.');
@@ -176,7 +176,11 @@ function parsePullRequest(
 
 function parseStatusCheckRollup(statusCheckRollup: unknown): CiCheck[] {
   return Array.isArray(statusCheckRollup)
-    ? sortChecks(statusCheckRollup.map((rawCheck) => normalizeStatusCheck(rawCheck)))
+    ? sortChecks(
+        statusCheckRollup.map((rawCheck: unknown) =>
+          normalizeStatusCheck(isObject(rawCheck) ? rawCheck : {}),
+        ),
+      )
     : [];
 }
 
@@ -306,8 +310,11 @@ async function deleteStoredPullRequestIdentityCacheEntry(
     return;
   }
 
-  const storedCache = readStoredPullRequestIdentityCache(identityStorage);
-  delete storedCache[cacheKey];
+  const storedCache = Object.fromEntries(
+    Object.entries(readStoredPullRequestIdentityCache(identityStorage)).filter(
+      ([key]) => key !== cacheKey,
+    ),
+  );
   await identityStorage.update(
     PR_IDENTITY_CACHE_STORAGE_KEY,
     pruneExpiredPullRequestIdentityCache(storedCache),
@@ -317,7 +324,7 @@ async function deleteStoredPullRequestIdentityCacheEntry(
 function readStoredPullRequestIdentityCache(
   identityStorage: PullRequestIdentityStorage | undefined,
 ): Record<string, unknown> {
-  const storedCache = identityStorage?.get<unknown>(PR_IDENTITY_CACHE_STORAGE_KEY);
+  const storedCache = identityStorage?.get(PR_IDENTITY_CACHE_STORAGE_KEY);
 
   return isObject(storedCache) ? storedCache : {};
 }
