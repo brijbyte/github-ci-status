@@ -25,3 +25,12 @@ pnpm build
 pnpm test
 pnpm typescript
 ```
+
+## Publishing
+
+The GitHub Actions publish workflow runs on pushes to `main`. It publishes only when
+`package.json` has a new version and that version does not already exist on the
+Visual Studio Marketplace.
+
+Configure the repository secret `VSCE_PAT` with a Visual Studio Marketplace
+personal access token that can publish under the `brijbyte` publisher.

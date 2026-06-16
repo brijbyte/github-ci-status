@@ -1,0 +1,155 @@
+name: Publish Extension
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to Visual Studio Marketplace
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Read package version
+        id: package
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const childProcess = require('node:child_process');
+
+          const currentPackage = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          let previousVersion;
+
+          if (process.env.EVENT_NAME === 'push' && process.env.BEFORE_SHA) {
+            try {
+              const previousPackageJson = childProcess.execFileSync(
+                'git',
+                ['show', `${process.env.BEFORE_SHA}:package.json`],
+                { encoding: 'utf8' },
+              );
+              previousVersion = JSON.parse(previousPackageJson).version;
+            } catch {
+              previousVersion = undefined;
+            }
+          }
+
+          const versionChanged =
+            process.env.EVENT_NAME === 'workflow_dispatch' ||
+            previousVersion !== currentPackage.version;
+          const output = fs.createWriteStream(process.env.GITHUB_OUTPUT, { flags: 'a' });
+
+          output.write(`name=${currentPackage.name}\n`);
+          output.write(`publisher=${currentPackage.publisher}\n`);
+          output.write(`version=${currentPackage.version}\n`);
+          output.write(`previous_version=${previousVersion ?? ''}\n`);
+          output.write(`version_changed=${versionChanged ? 'true' : 'false'}\n`);
+          NODE
+
+      - name: Check Marketplace version
+        id: marketplace
+        if: steps.package.outputs.version_changed == 'true'
+        env:
+          EXTENSION_NAME: ${{ steps.package.outputs.name }}
+          EXTENSION_PUBLISHER: ${{ steps.package.outputs.publisher }}
+          EXTENSION_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const extensionId = `${process.env.EXTENSION_PUBLISHER}.${process.env.EXTENSION_NAME}`;
+          const response = await fetch(
+            'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery?api-version=7.2-preview.1',
+            {
+              method: 'POST',
+              headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                filters: [
+                  {
+                    criteria: [
+                      {
+                        filterType: 7,
+                        value: extensionId,
+                      },
+                    ],
+                  },
+                ],
+                flags: 1,
+              }),
+            },
+          );
+
+          if (!response.ok) {
+            throw new Error(
+              `Marketplace lookup failed with ${response.status} ${response.statusText}`,
+            );
+          }
+
+          const body = await response.json();
+          const extension = body.results?.[0]?.extensions?.[0];
+          const versions = Array.isArray(extension?.versions) ? extension.versions : [];
+          const versionExists = versions.some(
+            (version) => version.version === process.env.EXTENSION_VERSION,
+          );
+          const output = fs.createWriteStream(process.env.GITHUB_OUTPUT, { flags: 'a' });
+
+          output.write(`version_exists=${versionExists ? 'true' : 'false'}\n`);
+          console.log(
+            versionExists
+              ? `${extensionId}@${process.env.EXTENSION_VERSION} already exists.`
+              : `${extensionId}@${process.env.EXTENSION_VERSION} is not on the Marketplace yet.`,
+          );
+          NODE
+
+      - name: Setup pnpm
+        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.2
+
+      - name: Setup Node.js
+        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate
+        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        run: |
+          pnpm run build
+          pnpm run typescript
+          pnpm run test
+          pnpm run package
+
+      - name: Publish
+        if: steps.package.outputs.version_changed == 'true' && steps.marketplace.outputs.version_exists == 'false'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: pnpm run publish
+
+      - name: Skip publish
+        if: steps.package.outputs.version_changed != 'true' || steps.marketplace.outputs.version_exists == 'true'
+        run: |
+          echo "Skipping publish."
+          echo "version_changed=${{ steps.package.outputs.version_changed }}"
+          echo "version_exists=${{ steps.marketplace.outputs.version_exists }}"
