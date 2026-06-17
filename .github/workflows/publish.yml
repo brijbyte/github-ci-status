@@ -6,17 +6,18 @@ on:
       - main
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   publish:
     name: Publish to Visual Studio Marketplace
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-tags: true
 
       - name: Read package version
         id: package
@@ -89,23 +90,48 @@ jobs:
           );
           NODE
 
+      - name: Check existing tag
+        id: tag
+        env:
+          EXTENSION_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          if git tag -l "v${EXTENSION_VERSION}" | grep -q .; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag v${EXTENSION_VERSION} already exists; a previous run already published (or queued) this version."
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+            echo "No tag for v${EXTENSION_VERSION} yet."
+          fi
+
+      - name: Decide whether to publish
+        id: decide
+        env:
+          VERSION_EXISTS: ${{ steps.marketplace.outputs.version_exists }}
+          TAG_EXISTS: ${{ steps.tag.outputs.tag_exists }}
+        run: |
+          if [ "$VERSION_EXISTS" = "false" ] && [ "$TAG_EXISTS" = "false" ]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup pnpm
-        if: steps.marketplace.outputs.version_exists == 'false'
+        if: steps.decide.outputs.should_publish == 'true'
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        if: steps.marketplace.outputs.version_exists == 'false'
+        if: steps.decide.outputs.should_publish == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
-        if: steps.marketplace.outputs.version_exists == 'false'
+        if: steps.decide.outputs.should_publish == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Validate
-        if: steps.marketplace.outputs.version_exists == 'false'
+        if: steps.decide.outputs.should_publish == 'true'
         run: |
           pnpm run prettier
           pnpm run lint
@@ -114,13 +140,36 @@ jobs:
           pnpm run package
 
       - name: Publish
-        if: steps.marketplace.outputs.version_exists == 'false'
+        if: steps.decide.outputs.should_publish == 'true'
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: pnpm run publish
+        run: |
+          set +e
+          output=$(pnpm run publish 2>&1)
+          code=$?
+          echo "$output"
+          if [ $code -ne 0 ]; then
+            if echo "$output" | grep -qi "already exists"; then
+              echo "Version already exists on the Marketplace (likely queued by a previous run); treating as success."
+              exit 0
+            fi
+            exit $code
+          fi
+
+      - name: Tag release
+        if: steps.decide.outputs.should_publish == 'true'
+        env:
+          EXTENSION_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v${EXTENSION_VERSION}"
+          git push origin "v${EXTENSION_VERSION}"
 
       - name: Skip publish
-        if: steps.marketplace.outputs.version_exists == 'true'
+        if: steps.decide.outputs.should_publish == 'false'
+        env:
+          EXTENSION_VERSION: ${{ steps.package.outputs.version }}
         run: |
           echo "Skipping publish."
-          echo "version=${{ steps.package.outputs.version }} already exists on the Marketplace."
+          echo "version=${EXTENSION_VERSION} already published or queued (marketplace=${{ steps.marketplace.outputs.version_exists }}, tag=${{ steps.tag.outputs.tag_exists }})."
