@@ -17,8 +17,10 @@
     "checks"
   ],
   "engines": {
-    "vscode": "^1.105.0"
+    "vscode": "^1.105.0",
+    "pnpm": ">=11.7.0"
   },
+  "packageManager": "pnpm@11.7.0",
   "categories": [
     "Other"
   ],
