@@ -13,4 +13,4 @@ pnpm-workspace.yaml
 tsconfig*.json
 vitest.config.mts
 *.tsbuildinfo
-resources/screenshot-*.png
+resources/screenshot-*.jpg

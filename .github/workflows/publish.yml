@@ -109,7 +109,6 @@ jobs:
         run: |
           pnpm run prettier
           pnpm run lint
-          pnpm run build
           pnpm run typescript
           pnpm run test
           pnpm run package
