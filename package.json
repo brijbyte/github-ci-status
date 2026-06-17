@@ -1,8 +1,8 @@
 {
   "name": "github-ci-status",
-  "displayName": "GitHub CI Status",
-  "description": "Show current branch pull request CI status checks from GitHub.",
-  "version": "0.0.3",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "0.0.4",
   "publisher": "brijbyte",
   "license": "MIT",
   "repository": {
@@ -27,32 +27,45 @@
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "l10n": "./l10n",
   "contributes": {
     "commands": [
       {
         "command": "githubCiStatus.showChecks",
-        "title": "GitHub CI Status",
+        "title": "%command.showChecks.title%",
         "icon": "$(checklist)"
       },
       {
         "command": "githubCiStatus.refresh",
-        "title": "Refresh GitHub CI Status",
+        "title": "%command.refresh.title%",
         "icon": "$(refresh)"
       },
       {
         "command": "githubCiStatus.openPullRequest",
-        "title": "Open GitHub Pull Request",
+        "title": "%command.openPullRequest.title%",
         "icon": "$(github)"
       }
     ],
+    "keybindings": [
+      {
+        "command": "githubCiStatus.refresh",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r"
+      }
+    ],
     "configuration": {
-      "title": "GitHub CI Status",
+      "title": "%configuration.title%",
       "properties": {
         "githubCiStatus.autoRefreshIntervalSeconds": {
           "type": "number",
           "default": 60,
           "minimum": 0,
-          "description": "Refresh interval for GitHub CI status checks. Set to 0 to disable automatic refresh."
+          "description": "%configuration.autoRefreshIntervalSeconds.description%"
+        },
+        "githubCiStatus.githubApiBaseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%configuration.githubApiBaseUrl.description%"
         }
       }
     }

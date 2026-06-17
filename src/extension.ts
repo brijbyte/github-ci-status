@@ -34,7 +34,7 @@ class CiStatusProvider implements vscode.Disposable {
   private repoBranchState = new Map<string, string>();
   private pullRequest: PullRequestInfo | undefined;
   private state: 'idle' | 'loading' | 'loaded' | 'error' = 'idle';
-  private message = 'Open a workspace folder to load CI checks.';
+  private message = vscode.l10n.t('Open a workspace folder to load CI checks.');
   private loadingWaiters: (() => void)[] = [];
 
   constructor(
@@ -62,7 +62,7 @@ class CiStatusProvider implements vscode.Disposable {
     }
 
     this.state = 'loading';
-    this.message = 'Loading current branch CI checks...';
+    this.message = vscode.l10n.t('Loading current branch CI checks...');
     this.updateStatusBar();
 
     try {
@@ -72,7 +72,7 @@ class CiStatusProvider implements vscode.Disposable {
         this.log('No workspace folder found.');
         this.pullRequest = undefined;
         this.state = 'loaded';
-        this.message = 'Open a GitHub repository to view CI checks.';
+        this.message = vscode.l10n.t('Open a GitHub repository to view CI checks.');
         this.updateStatusBar();
         return;
       }
@@ -84,7 +84,10 @@ class CiStatusProvider implements vscode.Disposable {
 
       if (this.pullRequest?.checks.length === 0 && this.scheduleEmptyCheckRetry()) {
         this.state = 'loading';
-        this.message = `Waiting for CI checks on pull request #${this.pullRequest.number}...`;
+        this.message = vscode.l10n.t(
+          'Waiting for CI checks on pull request #{0}...',
+          this.pullRequest.number,
+        );
         this.updateStatusBar();
         return;
       }
@@ -97,7 +100,7 @@ class CiStatusProvider implements vscode.Disposable {
       this.state = 'loaded';
       this.message = this.pullRequest
         ? `#${this.pullRequest.number} ${summarizeChecks(this.pullRequest.checks)}`
-        : 'No pull request found for the current branch.';
+        : vscode.l10n.t('No pull request found for the current branch.');
       this.log(this.pullRequest ? this.message : 'No pull request found for the current branch.');
     } catch (error) {
       this.pullRequest = undefined;
@@ -112,7 +115,7 @@ class CiStatusProvider implements vscode.Disposable {
   async openPullRequest(): Promise<void> {
     if (!this.pullRequest) {
       await vscode.window.showInformationMessage(
-        'No pull request is loaded for the current branch.',
+        vscode.l10n.t('No pull request is loaded for the current branch.'),
       );
       return;
     }
@@ -135,7 +138,7 @@ class CiStatusProvider implements vscode.Disposable {
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: 'Loading CI checks...',
+          title: vscode.l10n.t('Loading CI checks...'),
         },
         () => this.whenLoadingFinished(),
       );
@@ -144,10 +147,12 @@ class CiStatusProvider implements vscode.Disposable {
       return;
     }
 
-    if (this.state === 'error') {
-      const selection = await vscode.window.showErrorMessage(this.message, 'Refresh');
+    const refreshLabel = vscode.l10n.t('Refresh');
 
-      if (selection === 'Refresh') {
+    if (this.state === 'error') {
+      const selection = await vscode.window.showErrorMessage(this.message, refreshLabel);
+
+      if (selection === refreshLabel) {
         await this.refresh();
       }
 
@@ -155,9 +160,9 @@ class CiStatusProvider implements vscode.Disposable {
     }
 
     if (!this.pullRequest) {
-      const selection = await vscode.window.showInformationMessage(this.message, 'Refresh');
+      const selection = await vscode.window.showInformationMessage(this.message, refreshLabel);
 
-      if (selection === 'Refresh') {
+      if (selection === refreshLabel) {
         await this.refresh();
       }
 
@@ -167,8 +172,8 @@ class CiStatusProvider implements vscode.Disposable {
     const selectedItem = await vscode.window.showQuickPick(
       createQuickPickItems(this.pullRequest, this.checkIconUris),
       {
-        placeHolder: `Pull request #${this.pullRequest.number}`,
-        title: createStatusBarSummary(this.pullRequest.checks).tooltip,
+        placeHolder: vscode.l10n.t('Pull request #{0}', this.pullRequest.number),
+        title: summarizeChecks(this.pullRequest.checks),
       },
     );
 
@@ -327,9 +332,6 @@ class CiStatusProvider implements vscode.Disposable {
       waiters.forEach((resolve) => resolve());
     }
 
-    this.statusBarItem.backgroundColor = undefined;
-    this.statusBarItem.color = undefined;
-
     if (this.state === 'loading') {
       this.statusBarItem.text = '$(tasklist) $(sync~spin)';
       this.statusBarItem.tooltip = this.message;
@@ -339,21 +341,27 @@ class CiStatusProvider implements vscode.Disposable {
     if (this.state === 'error') {
       this.statusBarItem.text = '$(tasklist) $(error)';
       this.statusBarItem.tooltip = this.message;
-      this.statusBarItem.color = new vscode.ThemeColor('testing.iconFailed');
       return;
     }
 
     if (this.pullRequest) {
       if (this.pullRequest.checks.length === 0) {
         this.statusBarItem.text = '$(tasklist) $(sync~spin)';
-        this.statusBarItem.tooltip = `Pull request #${this.pullRequest.number} on ${this.pullRequest.headRefName}\nNo checks returned yet.`;
+        this.statusBarItem.tooltip = vscode.l10n.t(
+          'Pull request #{0} on {1}\nNo checks returned yet.',
+          this.pullRequest.number,
+          this.pullRequest.headRefName,
+        );
         return;
       }
 
-      const summary = createStatusBarSummary(this.pullRequest.checks);
-      this.statusBarItem.text = `${summary.icon} ${summary.passedCount}/${summary.totalCount}`;
-      this.statusBarItem.tooltip = `Pull request #${this.pullRequest.number} on ${this.pullRequest.headRefName}\n${summary.tooltip}`;
-      this.statusBarItem.color = summary.color;
+      this.statusBarItem.text = createStatusBarText(this.pullRequest.checks);
+      this.statusBarItem.tooltip = vscode.l10n.t(
+        'Pull request #{0} on {1}\n{2}',
+        this.pullRequest.number,
+        this.pullRequest.headRefName,
+        summarizeChecks(this.pullRequest.checks),
+      );
       return;
     }
 
@@ -385,6 +393,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('githubCiStatus.autoRefreshIntervalSeconds')) {
         provider.configureAutoRefresh();
+      }
+
+      if (event.affectsConfiguration('githubCiStatus.githubApiBaseUrl')) {
+        void provider.refresh();
       }
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -422,57 +434,26 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function createStatusBarSummary(checks: readonly CiCheck[]): {
-  icon: string;
-  color: vscode.ThemeColor | undefined;
-  passedCount: number;
-  totalCount: number;
-  tooltip: string;
-} {
-  const totalCount = checks.length;
+function createStatusBarText(checks: readonly CiCheck[]): string {
   const passedCount = checks.filter((check) => check.status === 'success').length;
   const failedCount = checks.filter((check) => check.status === 'failure').length;
-  const activeCount = checks.filter(
+  const runningCount = checks.filter(
     (check) => check.status === 'running' || check.status === 'queued',
   ).length;
 
+  const segments: string[] = [];
+
+  if (runningCount > 0) {
+    segments.push(`$(sync~spin) ${runningCount}`);
+  }
+
   if (failedCount > 0) {
-    return {
-      icon: '$(error)',
-      color: new vscode.ThemeColor('testing.iconFailed'),
-      passedCount,
-      totalCount,
-      tooltip: `${passedCount}/${totalCount} checks passed, ${failedCount} failed`,
-    };
+    segments.push(`$(error) ${failedCount}`);
   }
 
-  if (totalCount > 0 && passedCount === totalCount) {
-    return {
-      icon: '$(pass)',
-      color: new vscode.ThemeColor('testing.iconPassed'),
-      passedCount,
-      totalCount,
-      tooltip: `${passedCount}/${totalCount} checks passed`,
-    };
-  }
+  segments.push(`$(pass) ${passedCount}`);
 
-  if (activeCount > 0) {
-    return {
-      icon: '$(sync~spin)',
-      color: undefined,
-      passedCount,
-      totalCount,
-      tooltip: `${passedCount}/${totalCount} checks passed, ${activeCount} running`,
-    };
-  }
-
-  return {
-    icon: '$(question)',
-    color: undefined,
-    passedCount,
-    totalCount,
-    tooltip: summarizeChecks(checks),
-  };
+  return segments.join(' ');
 }
 
 function createQuickPickItems(
@@ -481,13 +462,13 @@ function createQuickPickItems(
 ): CheckQuickPickItem[] {
   return [
     {
-      label: `Open pull request #${pullRequest.number}`,
+      label: vscode.l10n.t('Open pull request #{0}', pullRequest.number),
       description: pullRequest.headRefName,
       iconPath: new vscode.ThemeIcon('github'),
       action: 'openPullRequest',
     },
     {
-      label: 'Refresh',
+      label: vscode.l10n.t('Refresh'),
       iconPath: new vscode.ThemeIcon('refresh'),
       action: 'refresh',
     },

@@ -1,0 +1,19 @@
+{
+  "Open a workspace folder to load CI checks.": "Open a workspace folder to load CI checks.",
+  "Loading current branch CI checks...": "Loading current branch CI checks...",
+  "Open a GitHub repository to view CI checks.": "Open a GitHub repository to view CI checks.",
+  "Waiting for CI checks on pull request #{0}...": "Waiting for CI checks on pull request #{0}...",
+  "No pull request found for the current branch.": "No pull request found for the current branch.",
+  "No pull request is loaded for the current branch.": "No pull request is loaded for the current branch.",
+  "Loading CI checks...": "Loading CI checks...",
+  "Refresh": "Refresh",
+  "Pull request #{0}": "Pull request #{0}",
+  "Pull request #{0} on {1}\nNo checks returned yet.": "Pull request #{0} on {1}\nNo checks returned yet.",
+  "Pull request #{0} on {1}\n{2}": "Pull request #{0} on {1}\n{2}",
+  "Open pull request #{0}": "Open pull request #{0}",
+  "No checks": "No checks",
+  "{0}/{1} passed": "{0}/{1} passed",
+  "{0} running": "{0} running",
+  "{0} failed": "{0} failed",
+  "{0} passed": "{0} passed"
+}

@@ -1,0 +1,10 @@
+{
+  "extension.displayName": "GitHub CI Status",
+  "extension.description": "Show current branch pull request CI status checks from GitHub.",
+  "command.showChecks.title": "GitHub CI Status: Show Checks",
+  "command.refresh.title": "GitHub CI Status: Refresh",
+  "command.openPullRequest.title": "GitHub CI Status: Open Pull Request",
+  "configuration.title": "GitHub CI Status",
+  "configuration.autoRefreshIntervalSeconds.description": "Refresh interval for GitHub CI status checks. Set to 0 to disable automatic refresh.",
+  "configuration.githubApiBaseUrl.description": "Base URL for the GitHub REST API. Leave empty for github.com. For GitHub Enterprise Server, set it to `https://your-host/api/v3`."
+}

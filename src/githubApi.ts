@@ -3,7 +3,20 @@ import { normalizeStatusCheck, sortChecks } from './checkStatus';
 import type { CiCheck, RawStatusCheck } from './checkStatus';
 import type { GitHubRepository } from './git';
 
-const API_BASE_URL = 'https://api.github.com';
+const DEFAULT_API_BASE_URL = 'https://api.github.com';
+
+function getApiBaseUrl(): string {
+  const configured = vscode.workspace
+    .getConfiguration('githubCiStatus')
+    .get<string>('githubApiBaseUrl')
+    ?.trim();
+
+  if (!configured) {
+    return DEFAULT_API_BASE_URL;
+  }
+
+  return configured.replace(/\/+$/, '');
+}
 
 interface GitHubPullRequest {
   number?: unknown;
@@ -168,11 +181,23 @@ export async function loadChecksFromGitHubApi(
 }
 
 async function loadGitHubToken(): Promise<string> {
-  const session = await vscode.authentication.getSession('github', ['repo'], {
-    createIfNone: true,
-  });
+  // GitHub Enterprise uses a separate VS Code authentication provider. When a
+  // custom API base URL is configured, prefer it and fall back to github.com.
+  const providerId = getApiBaseUrl() === DEFAULT_API_BASE_URL ? 'github' : 'github-enterprise';
 
-  return session.accessToken;
+  try {
+    const session = await vscode.authentication.getSession(providerId, ['repo'], {
+      createIfNone: true,
+    });
+
+    return session.accessToken;
+  } catch {
+    const session = await vscode.authentication.getSession('github', ['repo'], {
+      createIfNone: true,
+    });
+
+    return session.accessToken;
+  }
 }
 
 async function loadCheckRuns(
@@ -247,7 +272,7 @@ function mapCommitStatusToRawStatusCheck(status: GitHubCommitStatus): RawStatusC
 }
 
 async function githubRequest<ResponseBody>(path: string, token: string): Promise<ResponseBody> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     headers: {
       Accept: 'application/vnd.github+json',
       Authorization: `Bearer ${token}`,

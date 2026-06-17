@@ -1,3 +1,5 @@
+import * as vscode from 'vscode';
+
 export type CheckStatusKind = 'success' | 'failure' | 'running' | 'queued' | 'skipped' | 'unknown';
 
 export interface RawStatusCheck {
@@ -130,7 +132,7 @@ export function sortChecks(checks: readonly CiCheck[]): CiCheck[] {
 
 export function summarizeChecks(checks: readonly CiCheck[]): string {
   if (checks.length === 0) {
-    return 'No checks';
+    return vscode.l10n.t('No checks');
   }
 
   const failedCount = checks.filter((check) => check.status === 'failure').length;
@@ -139,13 +141,21 @@ export function summarizeChecks(checks: readonly CiCheck[]): string {
   ).length;
   const passedCount = checks.filter((check) => check.status === 'success').length;
 
-  if (failedCount > 0) {
-    return `${failedCount} failed, ${passedCount} passed`;
+  if (failedCount === 0 && activeCount === 0) {
+    return vscode.l10n.t('{0}/{1} passed', passedCount, checks.length);
   }
+
+  const segments: string[] = [];
 
   if (activeCount > 0) {
-    return `${activeCount} running, ${passedCount} passed`;
+    segments.push(vscode.l10n.t('{0} running', activeCount));
   }
 
-  return `${passedCount}/${checks.length} passed`;
+  if (failedCount > 0) {
+    segments.push(vscode.l10n.t('{0} failed', failedCount));
+  }
+
+  segments.push(vscode.l10n.t('{0} passed', passedCount));
+
+  return segments.join(', ');
 }
